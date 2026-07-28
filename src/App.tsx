@@ -72,34 +72,30 @@ export default function App() {
 
     const failed: string[] = []
 
-    const results = await mapPool(
+    await mapPool(
       files,
       CONCURRENCY,
       async (file) => {
         try {
           const { pdf, preview } = await heicToPdf(file)
-          return {
-            ok: true as const,
-            item: {
-              id: createId(),
-              name: heicBasenameToPdfName(file.name),
-              blob: pdf,
-              url: URL.createObjectURL(pdf),
-              previewUrl: URL.createObjectURL(preview),
-            },
+          const item: PdfItem = {
+            id: createId(),
+            name: heicBasenameToPdfName(file.name),
+            blob: pdf,
+            url: URL.createObjectURL(pdf),
+            previewUrl: URL.createObjectURL(preview),
           }
+          setItems((prev) => [...prev, item])
         } catch (err) {
           failed.push(
             `${file.name}: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
           )
-          return { ok: false as const }
+          setErrors([...failed])
         }
       },
       (done, total) => setProgress({ done, total }),
     )
 
-    const created = results.flatMap((r) => (r.ok ? [r.item] : []))
-    setItems((prev) => [...prev, ...created])
     setErrors(failed)
     setProgress(null)
     setConverting(false)

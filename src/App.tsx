@@ -190,7 +190,13 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
-        <h1>HEIC → PDF Merger</h1>
+        <div className="app__header-row">
+          <h1>HEIC → PDF Merger</h1>
+          <p className="app__remaining" aria-live="polite">
+            <strong>{items.length}</strong>
+            {items.length === 1 ? ' Datei übrig' : ' Dateien übrig'}
+          </p>
+        </div>
         <p>100 % lokal — Dateien verlassen deinen Browser nicht.</p>
       </header>
 
@@ -213,7 +219,6 @@ export default function App() {
       {items.length > 0 && (
         <>
           <div className="toolbar">
-            <span className="toolbar__count">{items.length} PDFs</span>
             <button
               type="button"
               className="toolbar__select-all"

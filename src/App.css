@@ -8,13 +8,35 @@
   margin-bottom: 1.5rem;
 }
 
+.app__header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .app__header h1 {
   margin: 0 0 0.35rem;
   font-size: clamp(1.6rem, 3vw, 2.2rem);
   letter-spacing: -0.02em;
 }
 
-.app__header p {
+.app__remaining {
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.app__remaining strong {
+  font-weight: 700;
+}
+
+.app__header > p {
   margin: 0;
   color: var(--muted);
 }
@@ -100,14 +122,9 @@
 .toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 1rem;
   margin-top: 1.5rem;
-}
-
-.toolbar__count {
-  color: var(--muted);
-  font-size: 0.95rem;
 }
 
 .toolbar__select-all {

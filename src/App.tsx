@@ -6,6 +6,7 @@ import { PdfPreviewModal } from './components/PdfPreviewModal'
 import { heicBasenameToPdfName, heicToPdf } from './lib/heicToPdf'
 import { mergePdfs, mergedPdfFilename } from './lib/mergePdfs'
 import { downloadBlob } from './lib/pickFiles'
+import { zipFilename, zipPdfs } from './lib/zipPdfs'
 import './App.css'
 
 const CONCURRENCY = 2
@@ -45,6 +46,7 @@ export default function App() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [errors, setErrors] = useState<string[]>([])
   const [merging, setMerging] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [previewItem, setPreviewItem] = useState<PdfItem | null>(null)
   const itemsRef = useRef(items)
   itemsRef.current = items
@@ -107,10 +109,26 @@ export default function App() {
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
-      else next.add(id)
+      else next.add(id) // ans Ende → Klick-Reihenfolge
       return next
     })
   }
+
+  const selectedInOrder = (): PdfItem[] => {
+    const byId = new Map(items.map((item) => [item.id, item]))
+    return [...selected]
+      .map((id) => byId.get(id))
+      .filter((item): item is PdfItem => item !== undefined)
+  }
+
+  const selectionOrder = (() => {
+    const order = new Map<string, number>()
+    let i = 1
+    for (const id of selected) {
+      order.set(id, i++)
+    }
+    return order
+  })()
 
   const removeItems = (ids: Iterable<string>) => {
     const idSet = ids instanceof Set ? ids : new Set(ids)
@@ -142,6 +160,7 @@ export default function App() {
   }
 
   const selectAll = () => {
+    // Sichtreihenfolge, falls nicht einzeln angeklickt
     setSelected(new Set(items.map((item) => item.id)))
   }
 
@@ -150,7 +169,7 @@ export default function App() {
   }
 
   const handleMerge = async () => {
-    const ordered = items.filter((item) => selected.has(item.id))
+    const ordered = selectedInOrder()
     if (ordered.length < 2) return
 
     setMerging(true)
@@ -170,16 +189,28 @@ export default function App() {
   }
 
   const handleDownloadSelected = async () => {
-    const ordered = items.filter((item) => selected.has(item.id))
-    for (let i = 0; i < ordered.length; i++) {
-      const item = ordered[i]!
-      downloadBlob(item.blob, item.name)
-      // Kurze Pause, damit der Browser mehrere Downloads nicht blockiert
-      if (i < ordered.length - 1) {
-        await new Promise((r) => setTimeout(r, 150))
+    const ordered = selectedInOrder()
+    if (ordered.length === 0) return
+
+    setDownloading(true)
+    try {
+      if (ordered.length === 1) {
+        const item = ordered[0]!
+        downloadBlob(item.blob, item.name)
+      } else {
+        const zip = await zipPdfs(
+          ordered.map((item) => ({ name: item.name, blob: item.blob })),
+        )
+        downloadBlob(zip, zipFilename())
       }
+      removeItems(ordered.map((item) => item.id))
+    } catch (err) {
+      setErrors([
+        `Download fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
+      ])
+    } finally {
+      setDownloading(false)
     }
-    removeItems(ordered.map((item) => item.id))
   }
 
   const handleDownloadOne = (item: PdfItem) => {
@@ -200,7 +231,7 @@ export default function App() {
         <p>100 % lokal — Dateien verlassen deinen Browser nicht.</p>
       </header>
 
-      <DropZone disabled={converting || merging} onFiles={handleFiles} />
+      <DropZone disabled={converting || merging || downloading} onFiles={handleFiles} />
 
       {progress && (
         <p className="status" role="status">
@@ -222,7 +253,7 @@ export default function App() {
             <button
               type="button"
               className="toolbar__select-all"
-              disabled={merging || converting}
+              disabled={merging || converting || downloading}
               onClick={
                 selected.size === items.length ? clearSelection : selectAll
               }
@@ -236,6 +267,7 @@ export default function App() {
                 key={item.id}
                 item={item}
                 selected={selected.has(item.id)}
+                selectionIndex={selectionOrder.get(item.id)}
                 onToggle={toggle}
                 onDownload={handleDownloadOne}
                 onRemove={removeItem}
@@ -257,6 +289,7 @@ export default function App() {
       <MergeBar
         selectedCount={selected.size}
         merging={merging}
+        downloading={downloading}
         onMerge={handleMerge}
         onDownloadSelected={handleDownloadSelected}
       />

@@ -9,6 +9,7 @@ export type PdfItem = {
 type PdfCardProps = {
   item: PdfItem
   selected: boolean
+  selectionIndex?: number
   onToggle: (id: string) => void
   onDownload: (item: PdfItem) => void
   onRemove: (id: string) => void
@@ -18,6 +19,7 @@ type PdfCardProps = {
 export function PdfCard({
   item,
   selected,
+  selectionIndex,
   onToggle,
   onDownload,
   onRemove,
@@ -31,7 +33,13 @@ export function PdfCard({
           checked={selected}
           onChange={() => onToggle(item.id)}
         />
-        <span className="visually-hidden">Auswählen</span>
+        {selectionIndex != null ? (
+          <span className="pdf-card__order" title={`Merge-Reihenfolge: ${selectionIndex}`}>
+            {selectionIndex}
+          </span>
+        ) : (
+          <span className="visually-hidden">Auswählen</span>
+        )}
       </label>
       <button
         type="button"

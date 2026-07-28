@@ -156,10 +156,12 @@
   top: 0.65rem;
   left: 0.65rem;
   z-index: 2;
-  width: 1.35rem;
+  min-width: 1.35rem;
   height: 1.35rem;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.3rem 0.15rem 0.2rem;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -193,6 +195,16 @@
   height: 1rem;
   accent-color: var(--accent);
   margin: 0;
+  flex-shrink: 0;
+}
+
+.pdf-card__order {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1;
+  min-width: 0.9rem;
+  text-align: center;
 }
 
 .pdf-card__preview {

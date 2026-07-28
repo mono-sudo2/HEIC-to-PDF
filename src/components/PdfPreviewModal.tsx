@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { PdfItem } from './PdfCard'
 
 type PdfPreviewModalProps = {
@@ -19,6 +19,11 @@ type ViewState = {
 export function PdfPreviewModal({ item, onClose }: PdfPreviewModalProps) {
   const [{ zoom, x, y }, setView] = useState<ViewState>({ zoom: 1, x: 0, y: 0 })
   const stageRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const zoomByRef = useRef<(
+    delta: number,
+    origin?: { clientX: number; clientY: number },
+  ) => void>(() => {})
   const dragRef = useRef<{
     pointerId: number
     startX: number
@@ -58,6 +63,8 @@ export function PdfPreviewModal({ item, onClose }: PdfPreviewModalProps) {
     })
   }, [])
 
+  zoomByRef.current = zoomBy
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -83,16 +90,56 @@ export function PdfPreviewModal({ item, onClose }: PdfPreviewModalProps) {
     }
   }, [])
 
-  const onWheel = (e: WheelEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const direction = e.deltaY > 0 ? -1 : 1
-    // Feinere Schritte bei Trackpad/Pixel-Scroll
-    const amount =
-      e.deltaMode === 0
-        ? Math.min(0.35, Math.abs(e.deltaY) * 0.004) * direction
-        : ZOOM_STEP * direction
-    zoomBy(amount, { clientX: e.clientX, clientY: e.clientY })
-  }
+  // Native wheel listener (passive: false), sonst blockiert Chrome/Safari preventDefault
+  // und Mac-Trackpad-Pinch zoomt die ganze Seite.
+  useEffect(() => {
+    const stage = stageRef.current
+    const panel = panelRef.current
+    if (!stage) return
+
+    const onWheel = (e: globalThis.WheelEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+
+      // Pinch auf macOS kommt als wheel + ctrlKey
+      const direction = e.deltaY > 0 ? -1 : 1
+      const amount =
+        e.ctrlKey || e.metaKey
+          ? Math.min(0.5, Math.abs(e.deltaY) * 0.01) * direction
+          : e.deltaMode === 0
+            ? Math.min(0.35, Math.abs(e.deltaY) * 0.004) * direction
+            : ZOOM_STEP * direction
+
+      zoomByRef.current(amount, { clientX: e.clientX, clientY: e.clientY })
+    }
+
+    const blockGesture = (e: Event) => {
+      e.preventDefault()
+    }
+
+    // Auch außerhalb der Stage: Browser-Pinch-Zoom unterbinden, solange Modal offen
+    const onWindowWheel = (e: globalThis.WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+      }
+    }
+
+    stage.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('wheel', onWindowWheel, { passive: false })
+
+    // Safari Gesture-Events
+    panel?.addEventListener('gesturestart', blockGesture, { passive: false })
+    panel?.addEventListener('gesturechange', blockGesture, { passive: false })
+    panel?.addEventListener('gestureend', blockGesture, { passive: false })
+
+    return () => {
+      stage.removeEventListener('wheel', onWheel)
+      window.removeEventListener('wheel', onWindowWheel)
+      panel?.removeEventListener('gesturestart', blockGesture)
+      panel?.removeEventListener('gesturechange', blockGesture)
+      panel?.removeEventListener('gestureend', blockGesture)
+    }
+  }, [])
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return
@@ -135,7 +182,7 @@ export function PdfPreviewModal({ item, onClose }: PdfPreviewModalProps) {
   return (
     <div className="preview-modal" role="dialog" aria-modal="true" aria-label={item.name}>
       <button type="button" className="preview-modal__backdrop" aria-label="Schließen" onClick={onClose} />
-      <div className="preview-modal__panel">
+      <div className="preview-modal__panel" ref={panelRef}>
         <header className="preview-modal__header">
           <p className="preview-modal__title" title={item.name}>
             {item.name}
@@ -169,7 +216,6 @@ export function PdfPreviewModal({ item, onClose }: PdfPreviewModalProps) {
         <div
           ref={stageRef}
           className={`preview-modal__stage${dragging ? ' preview-modal__stage--dragging' : ''}`}
-          onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
@@ -187,7 +233,7 @@ export function PdfPreviewModal({ item, onClose }: PdfPreviewModalProps) {
               <iframe title={item.name} src={src} />
             )}
           </div>
-          <p className="preview-modal__hint">Scrollen = Zoom · Ziehen = Bewegen</p>
+          <p className="preview-modal__hint">Scrollen / Pinch = Zoom · Ziehen = Bewegen</p>
         </div>
       </div>
     </div>

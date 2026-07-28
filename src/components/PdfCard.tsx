@@ -12,9 +12,17 @@ type PdfCardProps = {
   onToggle: (id: string) => void
   onDownload: (item: PdfItem) => void
   onRemove: (id: string) => void
+  onPreview: (item: PdfItem) => void
 }
 
-export function PdfCard({ item, selected, onToggle, onDownload, onRemove }: PdfCardProps) {
+export function PdfCard({
+  item,
+  selected,
+  onToggle,
+  onDownload,
+  onRemove,
+  onPreview,
+}: PdfCardProps) {
   return (
     <article className={`pdf-card${selected ? ' pdf-card--selected' : ''}`}>
       <label className="pdf-card__check">
@@ -34,12 +42,25 @@ export function PdfCard({ item, selected, onToggle, onDownload, onRemove }: PdfC
       >
         ×
       </button>
-      <div className="pdf-card__preview">
+      <div
+        className="pdf-card__preview"
+        role="button"
+        tabIndex={0}
+        title="Vergrößern"
+        onClick={() => onPreview(item)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onPreview(item)
+          }
+        }}
+      >
         {item.previewUrl ? (
           <img src={item.previewUrl} alt="" />
         ) : (
           <iframe title={item.name} src={item.url} />
         )}
+        <span className="pdf-card__zoom-hint">Zoom</span>
       </div>
       <div className="pdf-card__meta">
         <p className="pdf-card__name" title={item.name}>

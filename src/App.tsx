@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { DropZone } from './components/DropZone'
 import { MergeBar } from './components/MergeBar'
 import { PdfCard, type PdfItem } from './components/PdfCard'
+import { PdfPreviewModal } from './components/PdfPreviewModal'
 import { heicBasenameToPdfName, heicToPdf } from './lib/heicToPdf'
 import { mergePdfs, mergedPdfFilename } from './lib/mergePdfs'
 import { downloadBlob } from './lib/pickFiles'
@@ -44,6 +45,7 @@ export default function App() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [errors, setErrors] = useState<string[]>([])
   const [merging, setMerging] = useState(false)
+  const [previewItem, setPreviewItem] = useState<PdfItem | null>(null)
   const itemsRef = useRef(items)
   itemsRef.current = items
 
@@ -110,18 +112,41 @@ export default function App() {
     })
   }
 
-  const removeItem = (id: string) => {
+  const removeItems = (ids: Iterable<string>) => {
+    const idSet = ids instanceof Set ? ids : new Set(ids)
+    if (idSet.size === 0) return
+
+    setPreviewItem((current) =>
+      current && idSet.has(current.id) ? null : current,
+    )
     setItems((prev) => {
-      const target = prev.find((item) => item.id === id)
-      if (target) revokeItem(target)
-      return prev.filter((item) => item.id !== id)
+      const keep: PdfItem[] = []
+      for (const item of prev) {
+        if (idSet.has(item.id)) revokeItem(item)
+        else keep.push(item)
+      }
+      return keep
     })
     setSelected((prev) => {
-      if (!prev.has(id)) return prev
+      let changed = false
       const next = new Set(prev)
-      next.delete(id)
-      return next
+      for (const id of idSet) {
+        if (next.delete(id)) changed = true
+      }
+      return changed ? next : prev
     })
+  }
+
+  const removeItem = (id: string) => {
+    removeItems([id])
+  }
+
+  const selectAll = () => {
+    setSelected(new Set(items.map((item) => item.id)))
+  }
+
+  const clearSelection = () => {
+    setSelected(new Set())
   }
 
   const handleMerge = async () => {
@@ -132,22 +157,9 @@ export default function App() {
     try {
       const blob = await mergePdfs(ordered.map((i) => i.blob))
       const name = mergedPdfFilename()
-      const merged: PdfItem = {
-        id: createId(),
-        name,
-        blob,
-        url: URL.createObjectURL(blob),
-      }
-
-      setItems((prev) => {
-        const keep = prev.filter((item) => !selected.has(item.id))
-        for (const item of prev) {
-          if (selected.has(item.id)) revokeItem(item)
-        }
-        return [...keep, merged]
-      })
-      setSelected(new Set())
+      const ids = ordered.map((item) => item.id)
       downloadBlob(blob, name)
+      removeItems(ids)
     } catch (err) {
       setErrors([
         `Merge fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
@@ -167,6 +179,12 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 150))
       }
     }
+    removeItems(ordered.map((item) => item.id))
+  }
+
+  const handleDownloadOne = (item: PdfItem) => {
+    downloadBlob(item.blob, item.name)
+    removeItem(item.id)
   }
 
   return (
@@ -193,22 +211,42 @@ export default function App() {
       )}
 
       {items.length > 0 && (
-        <section className="grid" aria-label="PDF-Karten">
-          {items.map((item) => (
-            <PdfCard
-              key={item.id}
-              item={item}
-              selected={selected.has(item.id)}
-              onToggle={toggle}
-              onDownload={(i) => downloadBlob(i.blob, i.name)}
-              onRemove={removeItem}
-            />
-          ))}
-        </section>
+        <>
+          <div className="toolbar">
+            <span className="toolbar__count">{items.length} PDFs</span>
+            <button
+              type="button"
+              className="toolbar__select-all"
+              disabled={merging || converting}
+              onClick={
+                selected.size === items.length ? clearSelection : selectAll
+              }
+            >
+              {selected.size === items.length ? 'Auswahl aufheben' : 'Alles auswählen'}
+            </button>
+          </div>
+          <section className="grid" aria-label="PDF-Karten">
+            {items.map((item) => (
+              <PdfCard
+                key={item.id}
+                item={item}
+                selected={selected.has(item.id)}
+                onToggle={toggle}
+                onDownload={handleDownloadOne}
+                onRemove={removeItem}
+                onPreview={setPreviewItem}
+              />
+            ))}
+          </section>
+        </>
       )}
 
       {!converting && items.length === 0 && (
         <p className="empty">Noch keine PDFs — starte mit HEIC-Dateien oben.</p>
+      )}
+
+      {previewItem && (
+        <PdfPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
       )}
 
       <MergeBar

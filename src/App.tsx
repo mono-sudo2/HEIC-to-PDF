@@ -7,7 +7,7 @@ import { heicBasenameToPdfName, heicToPdf } from './lib/heicToPdf'
 import { mergePdfs, mergedPdfFilename } from './lib/mergePdfs'
 import { downloadBlob } from './lib/pickFiles'
 import { zipFilename, zipPdfs } from './lib/zipPdfs'
-import { pdfFromJpeg, rotateImageBlob, rotatePdf } from './lib/rotatePdf'
+import { rotateImageBlob, rotatePdf } from './lib/rotatePdf'
 import './App.css'
 
 const CONCURRENCY = 2
@@ -244,16 +244,12 @@ export default function App() {
 
     setRotatingId(id)
     try {
-      let rotatedPdf: Blob
+      const rotatedPdf = await rotatePdf(current.blob, 90)
       let previewUrl: string | undefined
-
       if (current.previewUrl) {
         const previewBlob = await fetch(current.previewUrl).then((r) => r.blob())
         const rotatedPreview = await rotateImageBlob(previewBlob, 90)
-        rotatedPdf = await pdfFromJpeg(rotatedPreview)
         previewUrl = URL.createObjectURL(rotatedPreview)
-      } else {
-        rotatedPdf = await rotatePdf(current.blob, 90)
       }
 
       const updated: PdfItem = {

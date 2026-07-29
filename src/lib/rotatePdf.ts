@@ -1,6 +1,6 @@
 import { PDFDocument, degrees } from 'pdf-lib'
 
-/** Dreht alle Seiten um `angle` Grad im Uhrzeigersinn (Standard: 90). */
+/** Dreht alle PDF-Seiten um 90° (Metadaten) — Bilddaten bleiben unverändert. */
 export async function rotatePdf(blob: Blob, angle = 90): Promise<Blob> {
   const bytes = new Uint8Array(await blob.arrayBuffer())
   const pdf = await PDFDocument.load(bytes)
@@ -14,23 +14,7 @@ export async function rotatePdf(blob: Blob, angle = 90): Promise<Blob> {
   return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
 }
 
-/** Baut eine einseitige PDF aus einem JPEG neu — Drehung ist pixelgenau gespeichert. */
-export async function pdfFromJpeg(jpegBlob: Blob): Promise<Blob> {
-  const jpegBytes = new Uint8Array(await jpegBlob.arrayBuffer())
-  const pdf = await PDFDocument.create()
-  const image = await pdf.embedJpg(jpegBytes)
-  const page = pdf.addPage([image.width, image.height])
-  page.drawImage(image, {
-    x: 0,
-    y: 0,
-    width: image.width,
-    height: image.height,
-  })
-  const pdfBytes = await pdf.save()
-  return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
-}
-
-/** Dreht ein Bild (JPEG/PNG) um `angle` Grad im Uhrzeigersinn. */
+/** Dreht ein Vorschaubild um 90° (nur UI). */
 export async function rotateImageBlob(blob: Blob, angle = 90): Promise<Blob> {
   const bitmap = await createImageBitmap(blob)
   const normalized = ((angle % 360) + 360) % 360

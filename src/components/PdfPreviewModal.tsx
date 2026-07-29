@@ -67,11 +67,6 @@ export function PdfPreviewModal({
     setView({ zoom: 1, x: 0, y: 0 })
   }, [])
 
-  // Beim Wechsel des Dokuments Zoom/Pan zurücksetzen
-  useEffect(() => {
-    setView({ zoom: 1, x: 0, y: 0 })
-  }, [item.id])
-
   const zoomBy = useCallback((delta: number, origin?: { clientX: number; clientY: number }) => {
     setView((prev) => {
       const nextZoom = clampZoom(prev.zoom + delta)

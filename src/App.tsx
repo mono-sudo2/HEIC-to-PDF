@@ -348,7 +348,7 @@ export default function App() {
 
       {progress && (
         <p className="status" role="status">
-          Konvertiere {progress.done}/{progress.total}…
+          Lade {progress.done}/{progress.total}…
         </p>
       )}
 

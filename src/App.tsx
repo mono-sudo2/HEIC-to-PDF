@@ -7,9 +7,12 @@ import { heicBasenameToPdfName, heicToPdf } from './lib/heicToPdf'
 import { mergePdfs, mergedPdfFilename } from './lib/mergePdfs'
 import { downloadBlob } from './lib/pickFiles'
 import { zipFilename, zipPdfs } from './lib/zipPdfs'
+import { pdfFromJpeg, rotateImageBlob, rotatePdf } from './lib/rotatePdf'
 import './App.css'
 
 const CONCURRENCY = 2
+const COLUMN_OPTIONS = [1, 2, 3, 4, 6, 12] as const
+type ColumnCount = (typeof COLUMN_OPTIONS)[number]
 
 function createId(): string {
   return crypto.randomUUID()
@@ -47,6 +50,8 @@ export default function App() {
   const [errors, setErrors] = useState<string[]>([])
   const [merging, setMerging] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [columns, setColumns] = useState<ColumnCount>(4)
+  const [rotatingId, setRotatingId] = useState<string | null>(null)
   const [previewItem, setPreviewItem] = useState<PdfItem | null>(null)
   const itemsRef = useRef(items)
   itemsRef.current = items
@@ -214,6 +219,45 @@ export default function App() {
     removeItem(item.id)
   }
 
+  const handleRotate = async (id: string) => {
+    const current = itemsRef.current.find((item) => item.id === id)
+    if (!current || rotatingId) return
+
+    setRotatingId(id)
+    try {
+      let rotatedPdf: Blob
+      let previewUrl: string | undefined
+
+      if (current.previewUrl) {
+        const previewBlob = await fetch(current.previewUrl).then((r) => r.blob())
+        const rotatedPreview = await rotateImageBlob(previewBlob, 90)
+        rotatedPdf = await pdfFromJpeg(rotatedPreview)
+        previewUrl = URL.createObjectURL(rotatedPreview)
+      } else {
+        rotatedPdf = await rotatePdf(current.blob, 90)
+      }
+
+      const updated: PdfItem = {
+        ...current,
+        blob: rotatedPdf,
+        url: URL.createObjectURL(rotatedPdf),
+        previewUrl,
+      }
+
+      URL.revokeObjectURL(current.url)
+      if (current.previewUrl) URL.revokeObjectURL(current.previewUrl)
+
+      setItems((prev) => prev.map((item) => (item.id === id ? updated : item)))
+      setPreviewItem((open) => (open?.id === id ? updated : open))
+    } catch (err) {
+      setErrors([
+        `Drehen fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
+      ])
+    } finally {
+      setRotatingId(null)
+    }
+  }
+
   return (
     <div className="app">
       <header className="app__header">
@@ -246,6 +290,20 @@ export default function App() {
       {items.length > 0 && (
         <>
           <div className="toolbar">
+            <label className="toolbar__columns">
+              <span>Pro Zeile</span>
+              <select
+                value={columns}
+                disabled={merging || converting || downloading}
+                onChange={(e) => setColumns(Number(e.target.value) as ColumnCount)}
+              >
+                {COLUMN_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               className="toolbar__select-all"
@@ -257,17 +315,23 @@ export default function App() {
               {selected.size === items.length ? 'Auswahl aufheben' : 'Alles auswählen'}
             </button>
           </div>
-          <section className="grid" aria-label="PDF-Karten">
+          <section
+            className="grid"
+            aria-label="PDF-Karten"
+            style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+          >
             {items.map((item) => (
               <PdfCard
                 key={item.id}
                 item={item}
                 selected={selected.has(item.id)}
                 selectionIndex={selectionOrder.get(item.id)}
+                rotating={rotatingId === item.id}
                 onToggle={toggle}
                 onDownload={handleDownloadOne}
                 onRemove={removeItem}
                 onPreview={setPreviewItem}
+                onRotate={handleRotate}
               />
             ))}
           </section>
@@ -279,7 +343,14 @@ export default function App() {
       )}
 
       {previewItem && (
-        <PdfPreviewModal item={previewItem} onClose={() => setPreviewItem(null)} />
+        <PdfPreviewModal
+          item={previewItem}
+          items={items}
+          rotating={rotatingId === previewItem.id}
+          onClose={() => setPreviewItem(null)}
+          onNavigate={setPreviewItem}
+          onRotate={handleRotate}
+        />
       )}
 
       <MergeBar

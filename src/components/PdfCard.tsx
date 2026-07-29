@@ -10,20 +10,24 @@ type PdfCardProps = {
   item: PdfItem
   selected: boolean
   selectionIndex?: number
+  rotating?: boolean
   onToggle: (id: string) => void
   onDownload: (item: PdfItem) => void
   onRemove: (id: string) => void
   onPreview: (item: PdfItem) => void
+  onRotate: (id: string) => void
 }
 
 export function PdfCard({
   item,
   selected,
   selectionIndex,
+  rotating,
   onToggle,
   onDownload,
   onRemove,
   onPreview,
+  onRotate,
 }: PdfCardProps) {
   return (
     <article className={`pdf-card${selected ? ' pdf-card--selected' : ''}`}>
@@ -74,9 +78,20 @@ export function PdfCard({
         <p className="pdf-card__name" title={item.name}>
           {item.name}
         </p>
-        <button type="button" className="pdf-card__download" onClick={() => onDownload(item)}>
-          Download
-        </button>
+        <div className="pdf-card__actions">
+          <button
+            type="button"
+            className="pdf-card__rotate"
+            title="90° drehen"
+            disabled={rotating}
+            onClick={() => onRotate(item.id)}
+          >
+            {rotating ? '…' : '↻'}
+          </button>
+          <button type="button" className="pdf-card__download" onClick={() => onDownload(item)}>
+            Download
+          </button>
+        </div>
       </div>
     </article>
   )

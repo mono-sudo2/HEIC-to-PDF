@@ -4,10 +4,14 @@ import type { PdfItem } from './PdfCard'
 type PdfPreviewModalProps = {
   item: PdfItem
   items: PdfItem[]
+  selected: boolean
   rotating?: boolean
   onClose: () => void
   onNavigate: (item: PdfItem) => void
   onRotate: (id: string) => void
+  onToggle: (id: string) => void
+  onDownload: (item: PdfItem) => void
+  onRemove: (id: string) => void
 }
 
 const MIN_ZOOM = 0.25
@@ -23,10 +27,14 @@ type ViewState = {
 export function PdfPreviewModal({
   item,
   items,
+  selected,
   rotating,
   onClose,
   onNavigate,
   onRotate,
+  onToggle,
+  onDownload,
+  onRemove,
 }: PdfPreviewModalProps) {
   const [{ zoom, x, y }, setView] = useState<ViewState>({ zoom: 1, x: 0, y: 0 })
   const stageRef = useRef<HTMLDivElement>(null)
@@ -107,6 +115,18 @@ export function PdfPreviewModal({
         e.preventDefault()
         if (!rotating) onRotate(item.id)
       }
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault()
+        onDownload(item)
+      }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault()
+        onRemove(item.id)
+      }
+      if (e.key === ' ') {
+        e.preventDefault()
+        onToggle(item.id)
+      }
       if (e.key === '+' || e.key === '=') {
         e.preventDefault()
         zoomBy(ZOOM_STEP)
@@ -119,7 +139,19 @@ export function PdfPreviewModal({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, resetView, zoomBy, goPrev, goNext, onRotate, item.id, rotating])
+  }, [
+    onClose,
+    resetView,
+    zoomBy,
+    goPrev,
+    goNext,
+    onRotate,
+    onDownload,
+    onRemove,
+    onToggle,
+    item,
+    rotating,
+  ])
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -219,9 +251,19 @@ export function PdfPreviewModal({
       <button type="button" className="preview-modal__backdrop" aria-label="Schließen" onClick={onClose} />
       <div className="preview-modal__panel" ref={panelRef}>
         <header className="preview-modal__header">
-          <p className="preview-modal__title" title={item.name}>
-            {item.name}
-          </p>
+          <div className="preview-modal__heading">
+            <label className="preview-modal__select">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={() => onToggle(item.id)}
+              />
+              <span>Auswählen</span>
+            </label>
+            <p className="preview-modal__title" title={item.name}>
+              {item.name}
+            </p>
+          </div>
           <div className="preview-modal__controls">
             <button
               type="button"
@@ -252,6 +294,23 @@ export function PdfPreviewModal({
             >
               {rotating ? '…' : '↻'}
             </button>
+            <button
+              type="button"
+              className="preview-modal__action"
+              onClick={() => onDownload(item)}
+              title="Download (D)"
+            >
+              Download
+            </button>
+            <button
+              type="button"
+              className="preview-modal__action preview-modal__action--danger"
+              onClick={() => onRemove(item.id)}
+              title="Entfernen (Entf)"
+            >
+              Entfernen
+            </button>
+            <span className="preview-modal__sep" aria-hidden="true" />
             <button
               type="button"
               onClick={() => zoomBy(-ZOOM_STEP)}
@@ -316,7 +375,7 @@ export function PdfPreviewModal({
             →
           </button>
           <p className="preview-modal__hint">
-            ← → Dokumente · R = Drehen · Scrollen / Pinch = Zoom · Ziehen = Bewegen
+            Leertaste = Auswahl · D = Download · Entf = Entfernen · R = Drehen
           </p>
         </div>
       </div>

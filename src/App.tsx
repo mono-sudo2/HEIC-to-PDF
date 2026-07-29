@@ -219,6 +219,25 @@ export default function App() {
     removeItem(item.id)
   }
 
+  const neighborAfterRemove = (id: string): PdfItem | null => {
+    const list = itemsRef.current
+    const idx = list.findIndex((entry) => entry.id === id)
+    if (idx < 0) return null
+    return list[idx + 1] ?? list[idx - 1] ?? null
+  }
+
+  const handleDownloadFromPreview = (item: PdfItem) => {
+    const fallback = neighborAfterRemove(item.id)
+    handleDownloadOne(item)
+    setPreviewItem(fallback && fallback.id !== item.id ? fallback : null)
+  }
+
+  const handleRemoveFromPreview = (id: string) => {
+    const fallback = neighborAfterRemove(id)
+    removeItem(id)
+    setPreviewItem(fallback && fallback.id !== id ? fallback : null)
+  }
+
   const handleRotate = async (id: string) => {
     const current = itemsRef.current.find((item) => item.id === id)
     if (!current || rotatingId) return
@@ -346,10 +365,14 @@ export default function App() {
         <PdfPreviewModal
           item={previewItem}
           items={items}
+          selected={selected.has(previewItem.id)}
           rotating={rotatingId === previewItem.id}
           onClose={() => setPreviewItem(null)}
           onNavigate={setPreviewItem}
           onRotate={handleRotate}
+          onToggle={toggle}
+          onDownload={handleDownloadFromPreview}
+          onRemove={handleRemoveFromPreview}
         />
       )}
 

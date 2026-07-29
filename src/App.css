@@ -342,12 +342,37 @@
 
 .preview-modal__header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.preview-modal__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.preview-modal__select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.preview-modal__select input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  margin: 0;
 }
 
 .preview-modal__title {
@@ -364,7 +389,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .preview-modal__controls button {
@@ -379,6 +404,17 @@
   border-radius: 8px;
   font-size: 1.1rem;
   line-height: 1;
+}
+
+.preview-modal__action {
+  width: auto !important;
+  padding: 0 0.7rem !important;
+  font-size: 0.8rem !important;
+  height: 2rem;
+}
+
+.preview-modal__action--danger {
+  color: var(--danger) !important;
 }
 
 .preview-modal__zoom {

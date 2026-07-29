@@ -53,6 +53,35 @@ export function clampCropQuad(
   }
 }
 
+/** Quad relativ 0–1 — überlebt Bildwechsel / andere Auflösungen */
+export type NormalizedQuad = {
+  tl: Point
+  tr: Point
+  br: Point
+  bl: Point
+}
+
+export function normalizeQuad(quad: CropQuad, w: number, h: number): NormalizedQuad {
+  const n = (p: Point): Point => ({
+    x: w > 0 ? p.x / w : 0,
+    y: h > 0 ? p.y / h : 0,
+  })
+  return { tl: n(quad.tl), tr: n(quad.tr), br: n(quad.br), bl: n(quad.bl) }
+}
+
+export function denormalizeQuad(
+  norm: NormalizedQuad,
+  w: number,
+  h: number,
+): CropQuad {
+  const d = (p: Point): Point => ({ x: p.x * w, y: p.y * h })
+  return clampCropQuad(
+    { tl: d(norm.tl), tr: d(norm.tr), br: d(norm.br), bl: d(norm.bl) },
+    w,
+    h,
+  )
+}
+
 function outputSize(quad: CropQuad): { w: number; h: number } {
   const w = Math.max(pointDist(quad.tl, quad.tr), pointDist(quad.bl, quad.br))
   const h = Math.max(pointDist(quad.tl, quad.bl), pointDist(quad.tr, quad.br))

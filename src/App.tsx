@@ -9,7 +9,7 @@ import {
   imageToJpegPreview,
   pdfFromImage,
 } from './lib/heicToPdf'
-import { cropImageBlob, type CropRect } from './lib/cropImage'
+import { perspectiveCropImageBlob, type CropQuad } from './lib/cropImage'
 import { mergePdfs, mergedPdfFilename } from './lib/mergePdfs'
 import { downloadBlob } from './lib/pickFiles'
 import { zipFilename, zipPdfs } from './lib/zipPdfs'
@@ -304,13 +304,13 @@ export default function App() {
     }
   }
 
-  const handleCrop = async (id: string, rect: CropRect) => {
+  const handleCrop = async (id: string, quad: CropQuad) => {
     const current = itemsRef.current.find((item) => item.id === id)
     if (!current || croppingId || rotatingId) return
 
     setCroppingId(id)
     try {
-      const cropped = await cropImageBlob(current.imageBlob, rect)
+      const cropped = await perspectiveCropImageBlob(current.imageBlob, quad)
       const preview = await imageToJpegPreview(cropped)
       replaceItemImages(id, cropped, preview)
     } catch (err) {

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import type { PdfItem } from './PdfCard'
-import { clampCropRect, type CropRect } from '../lib/cropImage'
+import {
+  clampCropQuad,
+  defaultCropQuad,
+  type CropQuad,
+  type Point,
+} from '../lib/cropImage'
 
 type PdfPreviewModalProps = {
   item: PdfItem
@@ -14,32 +19,24 @@ type PdfPreviewModalProps = {
   onToggle: (id: string) => void
   onDownload: (item: PdfItem) => void
   onRemove: (id: string) => void
-  onCrop: (id: string, rect: CropRect) => void | Promise<void>
+  onCrop: (id: string, quad: CropQuad) => void | Promise<void>
 }
 
 const MIN_ZOOM = 0.25
 const MAX_ZOOM = 8
 const ZOOM_STEP = 0.2
 
-type ViewState = {
-  zoom: number
-  x: number
-  y: number
+type ViewState = { zoom: number; x: number; y: number }
+type CornerKey = keyof CropQuad
+type CornerScreen = Record<CornerKey, Point>
+
+const CORNERS: CornerKey[] = ['tl', 'tr', 'br', 'bl']
+const CORNER_LABELS: Record<CornerKey, string> = {
+  tl: 'OL',
+  tr: 'OR',
+  br: 'UR',
+  bl: 'UL',
 }
-
-type OverlayBox = { left: number; top: number; width: number; height: number }
-
-type CropDrag =
-  | { type: 'create'; startX: number; startY: number; pointerId: number }
-  | { type: 'move'; pointerId: number; startClientX: number; startClientY: number; origin: CropRect }
-  | {
-      type: 'resize'
-      pointerId: number
-      handle: 'nw' | 'ne' | 'sw' | 'se'
-      startClientX: number
-      startClientY: number
-      origin: CropRect
-    }
 
 export function PdfPreviewModal({
   item,
@@ -70,11 +67,15 @@ export function PdfPreviewModal({
     originX: number
     originY: number
   } | null>(null)
-  const cropDragRef = useRef<CropDrag | null>(null)
+  const cornerDragRef = useRef<{
+    key: CornerKey
+    pointerId: number
+  } | null>(null)
+
   const [dragging, setDragging] = useState(false)
   const [cropping, setCropping] = useState(false)
-  const [cropRect, setCropRect] = useState<CropRect | null>(null)
-  const [overlay, setOverlay] = useState<OverlayBox | null>(null)
+  const [quad, setQuad] = useState<CropQuad | null>(null)
+  const [cornerScreen, setCornerScreen] = useState<CornerScreen | null>(null)
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 })
 
   const index = items.findIndex((entry) => entry.id === item.id)
@@ -126,29 +127,33 @@ export function PdfPreviewModal({
 
   zoomByRef.current = zoomBy
 
-  const updateOverlay = useCallback(() => {
+  const updateCornerScreen = useCallback(() => {
     const img = imgRef.current
     const stage = stageRef.current
-    if (!img || !stage || !cropRect || naturalSize.w === 0) {
-      setOverlay(null)
+    if (!img || !stage || !quad || naturalSize.w === 0) {
+      setCornerScreen(null)
       return
     }
     const stageBox = stage.getBoundingClientRect()
     const imgBox = img.getBoundingClientRect()
-    setOverlay({
-      left: imgBox.left - stageBox.left + (cropRect.x / naturalSize.w) * imgBox.width,
-      top: imgBox.top - stageBox.top + (cropRect.y / naturalSize.h) * imgBox.height,
-      width: (cropRect.w / naturalSize.w) * imgBox.width,
-      height: (cropRect.h / naturalSize.h) * imgBox.height,
+    const map = (p: Point): Point => ({
+      x: imgBox.left - stageBox.left + (p.x / naturalSize.w) * imgBox.width,
+      y: imgBox.top - stageBox.top + (p.y / naturalSize.h) * imgBox.height,
     })
-  }, [cropRect, naturalSize])
+    setCornerScreen({
+      tl: map(quad.tl),
+      tr: map(quad.tr),
+      br: map(quad.br),
+      bl: map(quad.bl),
+    })
+  }, [quad, naturalSize])
 
   useLayoutEffect(() => {
-    updateOverlay()
-  }, [updateOverlay, zoom, x, y, item.id, cropping])
+    updateCornerScreen()
+  }, [updateCornerScreen, zoom, x, y, item.id, cropping])
 
   const clientToImage = useCallback(
-    (clientX: number, clientY: number) => {
+    (clientX: number, clientY: number): Point => {
       const img = imgRef.current
       if (!img || naturalSize.w === 0) return { x: 0, y: 0 }
       const box = img.getBoundingClientRect()
@@ -166,32 +171,24 @@ export function PdfPreviewModal({
     const h = img?.naturalHeight || naturalSize.h
     if (!w || !h) return
     setNaturalSize({ w, h })
-    const insetX = w * 0.1
-    const insetY = h * 0.1
-    setCropRect(
-      clampCropRect(
-        { x: insetX, y: insetY, w: w - insetX * 2, h: h - insetY * 2 },
-        w,
-        h,
-      ),
-    )
+    setQuad(defaultCropQuad(w, h))
     setCropping(true)
   }
 
   const cancelCrop = () => {
     setCropping(false)
-    setCropRect(null)
-    setOverlay(null)
-    cropDragRef.current = null
+    setQuad(null)
+    setCornerScreen(null)
+    cornerDragRef.current = null
   }
 
   const applyCrop = async () => {
-    if (!cropRect || busy) return
+    if (!quad || busy) return
     try {
-      await onCrop(item.id, cropRect)
+      await onCrop(item.id, quad)
       cancelCrop()
     } catch {
-      // Fehler wird in App angezeigt; Crop-Modus bleibt offen
+      // Fehler in App
     }
   }
 
@@ -208,7 +205,7 @@ export function PdfPreviewModal({
         }
         if (e.key === 'Enter') {
           e.preventDefault()
-          applyCrop()
+          void applyCrop()
         }
         return
       }
@@ -289,9 +286,7 @@ export function PdfPreviewModal({
     }
 
     const onWindowWheel = (e: globalThis.WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault()
-      }
+      if (e.ctrlKey || e.metaKey) e.preventDefault()
     }
 
     stage.addEventListener('wheel', onWheel, { passive: false })
@@ -310,23 +305,7 @@ export function PdfPreviewModal({
   }, [cropping])
 
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-
-    if (cropping) {
-      e.currentTarget.setPointerCapture(e.pointerId)
-      const pt = clientToImage(e.clientX, e.clientY)
-      cropDragRef.current = {
-        type: 'create',
-        startX: pt.x,
-        startY: pt.y,
-        pointerId: e.pointerId,
-      }
-      setCropRect(
-        clampCropRect({ x: pt.x, y: pt.y, w: 20, h: 20 }, naturalSize.w, naturalSize.h),
-      )
-      return
-    }
-
+    if (e.button !== 0 || cropping) return
     e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = {
       pointerId: e.pointerId,
@@ -338,122 +317,56 @@ export function PdfPreviewModal({
     setDragging(true)
   }
 
-  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-    const cropDrag = cropDragRef.current
-    if (cropping && cropDrag && cropDrag.pointerId === e.pointerId) {
-      if (cropDrag.type === 'create') {
-        const pt = clientToImage(e.clientX, e.clientY)
-        const x0 = Math.min(cropDrag.startX, pt.x)
-        const y0 = Math.min(cropDrag.startY, pt.y)
-        const x1 = Math.max(cropDrag.startX, pt.x)
-        const y1 = Math.max(cropDrag.startY, pt.y)
-        setCropRect(
-          clampCropRect(
-            { x: x0, y: y0, w: x1 - x0, h: y1 - y0 },
-            naturalSize.w,
-            naturalSize.h,
-          ),
+  const onPointerMove = (e: PointerEvent<HTMLElement>) => {
+    const cornerDrag = cornerDragRef.current
+    if (cropping && cornerDrag && cornerDrag.pointerId === e.pointerId) {
+      const pt = clientToImage(e.clientX, e.clientY)
+      setQuad((prev) => {
+        if (!prev) return prev
+        return clampCropQuad(
+          { ...prev, [cornerDrag.key]: pt },
+          naturalSize.w,
+          naturalSize.h,
         )
-        return
-      }
-      if (cropDrag.type === 'move') {
-        const img = imgRef.current
-        if (!img) return
-        const box = img.getBoundingClientRect()
-        const dx = ((e.clientX - cropDrag.startClientX) / box.width) * naturalSize.w
-        const dy = ((e.clientY - cropDrag.startClientY) / box.height) * naturalSize.h
-        setCropRect(
-          clampCropRect(
-            {
-              x: cropDrag.origin.x + dx,
-              y: cropDrag.origin.y + dy,
-              w: cropDrag.origin.w,
-              h: cropDrag.origin.h,
-            },
-            naturalSize.w,
-            naturalSize.h,
-          ),
-        )
-        return
-      }
-      if (cropDrag.type === 'resize') {
-        const img = imgRef.current
-        if (!img) return
-        const box = img.getBoundingClientRect()
-        const dx = ((e.clientX - cropDrag.startClientX) / box.width) * naturalSize.w
-        const dy = ((e.clientY - cropDrag.startClientY) / box.height) * naturalSize.h
-        let { x: rx, y: ry, w: rw, h: rh } = cropDrag.origin
-        if (cropDrag.handle.includes('e')) rw = cropDrag.origin.w + dx
-        if (cropDrag.handle.includes('w')) {
-          rx = cropDrag.origin.x + dx
-          rw = cropDrag.origin.w - dx
-        }
-        if (cropDrag.handle.includes('s')) rh = cropDrag.origin.h + dy
-        if (cropDrag.handle.includes('n')) {
-          ry = cropDrag.origin.y + dy
-          rh = cropDrag.origin.h - dy
-        }
-        setCropRect(clampCropRect({ x: rx, y: ry, w: rw, h: rh }, naturalSize.w, naturalSize.h))
-        return
-      }
+      })
+      return
     }
 
     const drag = dragRef.current
     if (!drag || drag.pointerId !== e.pointerId) return
-    const dx = e.clientX - drag.startX
-    const dy = e.clientY - drag.startY
     setView((prev) => ({
       ...prev,
-      x: drag.originX + dx,
-      y: drag.originY + dy,
+      x: drag.originX + (e.clientX - drag.startX),
+      y: drag.originY + (e.clientY - drag.startY),
     }))
   }
 
-  const endDrag = (e: PointerEvent<HTMLDivElement>) => {
-    if (cropDragRef.current?.pointerId === e.pointerId) {
-      cropDragRef.current = null
+  const endDrag = (e: PointerEvent<HTMLElement>) => {
+    if (cornerDragRef.current?.pointerId === e.pointerId) {
+      cornerDragRef.current = null
     }
     const drag = dragRef.current
     if (!drag || drag.pointerId !== e.pointerId) return
     dragRef.current = null
     setDragging(false)
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+    if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId)
     }
   }
 
-  const startMoveCrop = (e: PointerEvent<HTMLElement>) => {
-    if (!cropRect) return
+  const startCornerDrag = (key: CornerKey, e: PointerEvent<HTMLElement>) => {
     e.stopPropagation()
+    e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
-    cropDragRef.current = {
-      type: 'move',
-      pointerId: e.pointerId,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      origin: cropRect,
-    }
-  }
-
-  const startResizeCrop = (
-    handle: 'nw' | 'ne' | 'sw' | 'se',
-    e: PointerEvent<HTMLElement>,
-  ) => {
-    if (!cropRect) return
-    e.stopPropagation()
-    e.currentTarget.setPointerCapture(e.pointerId)
-    cropDragRef.current = {
-      type: 'resize',
-      handle,
-      pointerId: e.pointerId,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      origin: cropRect,
-    }
+    cornerDragRef.current = { key, pointerId: e.pointerId }
   }
 
   const positionLabel =
     index >= 0 ? `${index + 1} / ${items.length}` : `– / ${items.length}`
+
+  const polygonPoints = cornerScreen
+    ? CORNERS.map((k) => `${cornerScreen[k].x},${cornerScreen[k].y}`).join(' ')
+    : ''
 
   return (
     <div className="preview-modal" role="dialog" aria-modal="true" aria-label={item.name}>
@@ -476,33 +389,15 @@ export function PdfPreviewModal({
           <div className="preview-modal__controls">
             {!cropping ? (
               <>
-                <button
-                  type="button"
-                  onClick={goPrev}
-                  disabled={!hasPrev}
-                  aria-label="Vorheriges Dokument"
-                  title="← Vorheriges"
-                >
+                <button type="button" onClick={goPrev} disabled={!hasPrev} aria-label="Vorheriges" title="←">
                   ←
                 </button>
                 <span className="preview-modal__position">{positionLabel}</span>
-                <button
-                  type="button"
-                  onClick={goNext}
-                  disabled={!hasNext}
-                  aria-label="Nächstes Dokument"
-                  title="→ Nächstes"
-                >
+                <button type="button" onClick={goNext} disabled={!hasNext} aria-label="Nächstes" title="→">
                   →
                 </button>
                 <span className="preview-modal__sep" aria-hidden="true" />
-                <button
-                  type="button"
-                  onClick={() => onRotate(item.id)}
-                  disabled={busy}
-                  aria-label="90° drehen"
-                  title="Drehen (R)"
-                >
+                <button type="button" onClick={() => onRotate(item.id)} disabled={busy} title="Drehen (R)">
                   {rotating ? '…' : '↻'}
                 </button>
                 <button
@@ -510,7 +405,7 @@ export function PdfPreviewModal({
                   className="preview-modal__action"
                   onClick={startCrop}
                   disabled={busy}
-                  title="Zuschneiden (C)"
+                  title="Perspektivisch zuschneiden (C)"
                 >
                   Zuschneiden
                 </button>
@@ -528,26 +423,16 @@ export function PdfPreviewModal({
                   className="preview-modal__action preview-modal__action--danger"
                   onClick={() => onRemove(item.id)}
                   disabled={busy}
-                  title="Entfernen (Entf)"
+                  title="Entfernen"
                 >
                   Entfernen
                 </button>
                 <span className="preview-modal__sep" aria-hidden="true" />
-                <button
-                  type="button"
-                  onClick={() => zoomBy(-ZOOM_STEP)}
-                  disabled={zoom <= MIN_ZOOM}
-                  aria-label="Verkleinern"
-                >
+                <button type="button" onClick={() => zoomBy(-ZOOM_STEP)} disabled={zoom <= MIN_ZOOM}>
                   −
                 </button>
                 <span className="preview-modal__zoom">{Math.round(zoom * 100)}%</span>
-                <button
-                  type="button"
-                  onClick={() => zoomBy(ZOOM_STEP)}
-                  disabled={zoom >= MAX_ZOOM}
-                  aria-label="Vergrößern"
-                >
+                <button type="button" onClick={() => zoomBy(ZOOM_STEP)} disabled={zoom >= MAX_ZOOM}>
                   +
                 </button>
                 <button type="button" className="preview-modal__reset" onClick={resetView}>
@@ -559,12 +444,12 @@ export function PdfPreviewModal({
               </>
             ) : (
               <>
-                <span className="preview-modal__position">Zuschneiden</span>
+                <span className="preview-modal__position">4 Ecken setzen</span>
                 <button
                   type="button"
                   className="preview-modal__action"
-                  onClick={applyCrop}
-                  disabled={busy || !cropRect}
+                  onClick={() => void applyCrop()}
+                  disabled={busy || !quad}
                 >
                   {croppingBusy ? '…' : 'Übernehmen'}
                 </button>
@@ -597,16 +482,13 @@ export function PdfPreviewModal({
               className="preview-modal__nav preview-modal__nav--prev"
               onClick={goPrev}
               disabled={!hasPrev}
-              aria-label="Vorheriges Dokument"
             >
               ←
             </button>
           )}
           <div
             className="preview-modal__content"
-            style={{
-              transform: `translate(${x}px, ${y}px) scale(${zoom})`,
-            }}
+            style={{ transform: `translate(${x}px, ${y}px) scale(${zoom})` }}
           >
             <img
               ref={imgRef}
@@ -619,47 +501,57 @@ export function PdfPreviewModal({
               }}
             />
           </div>
-          {cropping && overlay && (
-            <div
-              className="crop-overlay"
-              style={{
-                left: overlay.left,
-                top: overlay.top,
-                width: overlay.width,
-                height: overlay.height,
-              }}
-              onPointerDown={startMoveCrop}
-              onPointerMove={onPointerMove}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-            >
-              {(['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
-                <span
-                  key={handle}
-                  className={`crop-overlay__handle crop-overlay__handle--${handle}`}
-                  onPointerDown={(e) => startResizeCrop(handle, e)}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={endDrag}
-                  onPointerCancel={endDrag}
-                />
-              ))}
-            </div>
+          {cropping && cornerScreen && (
+            <svg className="crop-quad" aria-hidden="true">
+              <defs>
+                <mask id="crop-hole">
+                  <rect x="0" y="0" width="100%" height="100%" fill="white" />
+                  <polygon points={polygonPoints} fill="black" />
+                </mask>
+              </defs>
+              <rect
+                className="crop-quad__dim"
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                mask="url(#crop-hole)"
+              />
+              <polygon className="crop-quad__poly" points={polygonPoints} />
+            </svg>
           )}
+          {cropping &&
+            cornerScreen &&
+            CORNERS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                className={`crop-quad__handle crop-quad__handle--${key}`}
+                style={{
+                  left: cornerScreen[key].x,
+                  top: cornerScreen[key].y,
+                }}
+                aria-label={`Ecke ${CORNER_LABELS[key]}`}
+                onPointerDown={(e) => startCornerDrag(key, e)}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+              />
+            ))}
           {!cropping && (
             <button
               type="button"
               className="preview-modal__nav preview-modal__nav--next"
               onClick={goNext}
               disabled={!hasNext}
-              aria-label="Nächstes Dokument"
             >
               →
             </button>
           )}
           <p className="preview-modal__hint">
             {cropping
-              ? 'Rechteck ziehen · Ecken anpassen · Enter = Übernehmen · Esc = Abbrechen'
-              : 'C = Zuschneiden · R = Drehen · Leertaste = Auswahl · D = Download'}
+              ? '4 Ecken an die Dokumentränder ziehen · Enter = Übernehmen · Esc = Abbrechen'
+              : 'C = Zuschneiden (Perspektive) · R = Drehen · Leertaste = Auswahl'}
           </p>
         </div>
       </div>

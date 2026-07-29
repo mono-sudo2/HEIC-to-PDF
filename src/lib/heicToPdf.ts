@@ -1,16 +1,13 @@
 import heic2any from 'heic2any'
 import { PDFDocument } from 'pdf-lib'
 
-export type HeicConversionResult = {
-  pdf: Blob
+export type HeicImageResult = {
+  image: Blob
   preview: Blob
 }
 
-/**
- * HEIC → PDF in voller Original-Auflösung (1:1 Pixel, verlustfrei als PNG).
- * Die JPEG-Vorschau ist nur für die UI und steckt nicht in der PDF.
- */
-export async function heicToPdf(file: File): Promise<HeicConversionResult> {
+/** HEIC → PNG (volle Auflösung) + JPEG-Vorschau. Keine PDF. */
+export async function heicToImage(file: File): Promise<HeicImageResult> {
   const converted = await heic2any({
     blob: file,
     toType: 'image/png',
@@ -21,10 +18,8 @@ export async function heicToPdf(file: File): Promise<HeicConversionResult> {
     throw new Error(`Konvertierung fehlgeschlagen: ${file.name}`)
   }
 
-  const pdf = await pdfFromImage(pngBlob)
   const preview = await imageToJpegPreview(pngBlob)
-
-  return { pdf, preview }
+  return { image: pngBlob, preview }
 }
 
 export async function pdfFromImage(imageBlob: Blob): Promise<Blob> {
@@ -35,7 +30,6 @@ export async function pdfFromImage(imageBlob: Blob): Promise<Blob> {
     (bytes[0] === 0x89 && bytes[1] === 0x50)
 
   const image = isPng ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes)
-  // Seitengröße = Pixelgröße → 1 PDF-Punkt pro Pixel (volle Auflösung bleibt erhalten)
   const page = pdf.addPage([image.width, image.height])
   page.drawImage(image, {
     x: 0,
@@ -48,7 +42,7 @@ export async function pdfFromImage(imageBlob: Blob): Promise<Blob> {
   return new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
 }
 
-async function imageToJpegPreview(blob: Blob, quality = 0.85): Promise<Blob> {
+export async function imageToJpegPreview(blob: Blob, quality = 0.85): Promise<Blob> {
   const bitmap = await createImageBitmap(blob)
   const canvas = document.createElement('canvas')
   canvas.width = bitmap.width

@@ -1,9 +1,9 @@
 export type PdfItem = {
   id: string
   name: string
-  blob: Blob
-  url: string
-  previewUrl?: string
+  imageBlob: Blob
+  imageUrl: string
+  previewUrl: string
 }
 
 type PdfCardProps = {
@@ -67,11 +67,7 @@ export function PdfCard({
           }
         }}
       >
-        {item.previewUrl ? (
-          <img src={item.previewUrl} alt="" />
-        ) : (
-          <iframe title={item.name} src={item.url} />
-        )}
+        <img src={item.previewUrl} alt="" />
         <span className="pdf-card__zoom-hint">Zoom</span>
       </div>
       <div className="pdf-card__meta">

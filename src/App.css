@@ -467,6 +467,54 @@
   cursor: grabbing;
 }
 
+.preview-modal__stage--cropping {
+  cursor: crosshair;
+}
+
+.crop-overlay {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  cursor: move;
+  touch-action: none;
+}
+
+.crop-overlay__handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  touch-action: none;
+}
+
+.crop-overlay__handle--nw {
+  left: -6px;
+  top: -6px;
+  cursor: nwse-resize;
+}
+
+.crop-overlay__handle--ne {
+  right: -6px;
+  top: -6px;
+  cursor: nesw-resize;
+}
+
+.crop-overlay__handle--sw {
+  left: -6px;
+  bottom: -6px;
+  cursor: nesw-resize;
+}
+
+.crop-overlay__handle--se {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+
 .preview-modal__nav {
   position: absolute;
   top: 50%;

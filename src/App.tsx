@@ -3,11 +3,17 @@ import { DropZone } from './components/DropZone'
 import { MergeBar } from './components/MergeBar'
 import { PdfCard, type PdfItem } from './components/PdfCard'
 import { PdfPreviewModal } from './components/PdfPreviewModal'
-import { heicBasenameToPdfName, heicToPdf } from './lib/heicToPdf'
+import {
+  heicBasenameToPdfName,
+  heicToImage,
+  imageToJpegPreview,
+  pdfFromImage,
+} from './lib/heicToPdf'
+import { cropImageBlob, type CropRect } from './lib/cropImage'
 import { mergePdfs, mergedPdfFilename } from './lib/mergePdfs'
 import { downloadBlob } from './lib/pickFiles'
 import { zipFilename, zipPdfs } from './lib/zipPdfs'
-import { rotateImageBlob, rotatePdf } from './lib/rotatePdf'
+import { rotateImageBlob } from './lib/rotatePdf'
 import './App.css'
 
 const CONCURRENCY = 2
@@ -50,8 +56,10 @@ export default function App() {
   const [errors, setErrors] = useState<string[]>([])
   const [merging, setMerging] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [columns, setColumns] = useState<ColumnCount>(4)
   const [rotatingId, setRotatingId] = useState<string | null>(null)
+  const [croppingId, setCroppingId] = useState<string | null>(null)
   const [previewItem, setPreviewItem] = useState<PdfItem | null>(null)
   const itemsRef = useRef(items)
   itemsRef.current = items
@@ -59,16 +67,18 @@ export default function App() {
   useEffect(() => {
     return () => {
       for (const item of itemsRef.current) {
-        URL.revokeObjectURL(item.url)
-        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+        URL.revokeObjectURL(item.imageUrl)
+        URL.revokeObjectURL(item.previewUrl)
       }
     }
   }, [])
 
   const revokeItem = (item: PdfItem) => {
-    URL.revokeObjectURL(item.url)
-    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+    URL.revokeObjectURL(item.imageUrl)
+    URL.revokeObjectURL(item.previewUrl)
   }
+
+  const busy = converting || merging || downloading || exporting
 
   const handleFiles = useCallback(async (files: File[]) => {
     setConverting(true)
@@ -82,12 +92,12 @@ export default function App() {
       CONCURRENCY,
       async (file) => {
         try {
-          const { pdf, preview } = await heicToPdf(file)
+          const { image, preview } = await heicToImage(file)
           const item: PdfItem = {
             id: createId(),
             name: heicBasenameToPdfName(file.name),
-            blob: pdf,
-            url: URL.createObjectURL(pdf),
+            imageBlob: image,
+            imageUrl: URL.createObjectURL(image),
             previewUrl: URL.createObjectURL(preview),
           }
           setItems((prev) => [...prev, item])
@@ -110,7 +120,7 @@ export default function App() {
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
-      else next.add(id) // ans Ende → Klick-Reihenfolge
+      else next.add(id)
       return next
     })
   }
@@ -161,7 +171,6 @@ export default function App() {
   }
 
   const selectAll = () => {
-    // Sichtreihenfolge, falls nicht einzeln angeklickt
     setSelected(new Set(items.map((item) => item.id)))
   }
 
@@ -169,23 +178,45 @@ export default function App() {
     setSelected(new Set())
   }
 
+  const replaceItemImages = (
+    id: string,
+    imageBlob: Blob,
+    previewBlob: Blob,
+  ) => {
+    const current = itemsRef.current.find((item) => item.id === id)
+    if (!current) return
+
+    const updated: PdfItem = {
+      ...current,
+      imageBlob,
+      imageUrl: URL.createObjectURL(imageBlob),
+      previewUrl: URL.createObjectURL(previewBlob),
+    }
+
+    revokeItem(current)
+    setItems((prev) => prev.map((item) => (item.id === id ? updated : item)))
+    setPreviewItem((open) => (open?.id === id ? updated : open))
+  }
+
   const handleMerge = async () => {
     const ordered = selectedInOrder()
     if (ordered.length < 2) return
 
     setMerging(true)
+    setExporting(true)
     try {
-      const blob = await mergePdfs(ordered.map((i) => i.blob))
+      const pdfs = await Promise.all(ordered.map((item) => pdfFromImage(item.imageBlob)))
+      const blob = await mergePdfs(pdfs)
       const name = mergedPdfFilename()
-      const ids = ordered.map((item) => item.id)
       downloadBlob(blob, name)
-      removeItems(ids)
+      removeItems(ordered.map((item) => item.id))
     } catch (err) {
       setErrors([
         `Merge fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
       ])
     } finally {
       setMerging(false)
+      setExporting(false)
     }
   }
 
@@ -194,14 +225,20 @@ export default function App() {
     if (ordered.length === 0) return
 
     setDownloading(true)
+    setExporting(true)
     try {
       if (ordered.length === 1) {
         const item = ordered[0]!
-        downloadBlob(item.blob, item.name)
+        const pdf = await pdfFromImage(item.imageBlob)
+        downloadBlob(pdf, item.name)
       } else {
-        const zip = await zipPdfs(
-          ordered.map((item) => ({ name: item.name, blob: item.blob })),
+        const pdfs = await Promise.all(
+          ordered.map(async (item) => ({
+            name: item.name,
+            blob: await pdfFromImage(item.imageBlob),
+          })),
         )
+        const zip = await zipPdfs(pdfs)
         downloadBlob(zip, zipFilename())
       }
       removeItems(ordered.map((item) => item.id))
@@ -211,12 +248,23 @@ export default function App() {
       ])
     } finally {
       setDownloading(false)
+      setExporting(false)
     }
   }
 
-  const handleDownloadOne = (item: PdfItem) => {
-    downloadBlob(item.blob, item.name)
-    removeItem(item.id)
+  const handleDownloadOne = async (item: PdfItem) => {
+    setExporting(true)
+    try {
+      const pdf = await pdfFromImage(item.imageBlob)
+      downloadBlob(pdf, item.name)
+      removeItem(item.id)
+    } catch (err) {
+      setErrors([
+        `Download fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
+      ])
+    } finally {
+      setExporting(false)
+    }
   }
 
   const neighborAfterRemove = (id: string): PdfItem | null => {
@@ -226,9 +274,9 @@ export default function App() {
     return list[idx + 1] ?? list[idx - 1] ?? null
   }
 
-  const handleDownloadFromPreview = (item: PdfItem) => {
+  const handleDownloadFromPreview = async (item: PdfItem) => {
     const fallback = neighborAfterRemove(item.id)
-    handleDownloadOne(item)
+    await handleDownloadOne(item)
     setPreviewItem(fallback && fallback.id !== item.id ? fallback : null)
   }
 
@@ -240,36 +288,38 @@ export default function App() {
 
   const handleRotate = async (id: string) => {
     const current = itemsRef.current.find((item) => item.id === id)
-    if (!current || rotatingId) return
+    if (!current || rotatingId || croppingId) return
 
     setRotatingId(id)
     try {
-      const rotatedPdf = await rotatePdf(current.blob, 90)
-      let previewUrl: string | undefined
-      if (current.previewUrl) {
-        const previewBlob = await fetch(current.previewUrl).then((r) => r.blob())
-        const rotatedPreview = await rotateImageBlob(previewBlob, 90)
-        previewUrl = URL.createObjectURL(rotatedPreview)
-      }
-
-      const updated: PdfItem = {
-        ...current,
-        blob: rotatedPdf,
-        url: URL.createObjectURL(rotatedPdf),
-        previewUrl,
-      }
-
-      URL.revokeObjectURL(current.url)
-      if (current.previewUrl) URL.revokeObjectURL(current.previewUrl)
-
-      setItems((prev) => prev.map((item) => (item.id === id ? updated : item)))
-      setPreviewItem((open) => (open?.id === id ? updated : open))
+      const rotated = await rotateImageBlob(current.imageBlob, 90)
+      const preview = await imageToJpegPreview(rotated)
+      replaceItemImages(id, rotated, preview)
     } catch (err) {
       setErrors([
         `Drehen fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
       ])
     } finally {
       setRotatingId(null)
+    }
+  }
+
+  const handleCrop = async (id: string, rect: CropRect) => {
+    const current = itemsRef.current.find((item) => item.id === id)
+    if (!current || croppingId || rotatingId) return
+
+    setCroppingId(id)
+    try {
+      const cropped = await cropImageBlob(current.imageBlob, rect)
+      const preview = await imageToJpegPreview(cropped)
+      replaceItemImages(id, cropped, preview)
+    } catch (err) {
+      setErrors([
+        `Zuschneiden fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
+      ])
+      throw err
+    } finally {
+      setCroppingId(null)
     }
   }
 
@@ -286,11 +336,17 @@ export default function App() {
         <p>100 % lokal — Dateien verlassen deinen Browser nicht.</p>
       </header>
 
-      <DropZone disabled={converting || merging || downloading} onFiles={handleFiles} />
+      <DropZone disabled={busy} onFiles={handleFiles} />
 
       {progress && (
         <p className="status" role="status">
           Konvertiere {progress.done}/{progress.total}…
+        </p>
+      )}
+
+      {exporting && !progress && (
+        <p className="status" role="status">
+          PDF wird erzeugt…
         </p>
       )}
 
@@ -309,7 +365,7 @@ export default function App() {
               <span>Pro Zeile</span>
               <select
                 value={columns}
-                disabled={merging || converting || downloading}
+                disabled={busy}
                 onChange={(e) => setColumns(Number(e.target.value) as ColumnCount)}
               >
                 {COLUMN_OPTIONS.map((n) => (
@@ -322,7 +378,7 @@ export default function App() {
             <button
               type="button"
               className="toolbar__select-all"
-              disabled={merging || converting || downloading}
+              disabled={busy}
               onClick={
                 selected.size === items.length ? clearSelection : selectAll
               }
@@ -354,7 +410,7 @@ export default function App() {
       )}
 
       {!converting && items.length === 0 && (
-        <p className="empty">Noch keine PDFs — starte mit HEIC-Dateien oben.</p>
+        <p className="empty">Noch keine Dateien — starte mit HEIC-Dateien oben.</p>
       )}
 
       {previewItem && (
@@ -363,19 +419,21 @@ export default function App() {
           items={items}
           selected={selected.has(previewItem.id)}
           rotating={rotatingId === previewItem.id}
+          croppingBusy={croppingId === previewItem.id}
           onClose={() => setPreviewItem(null)}
           onNavigate={setPreviewItem}
           onRotate={handleRotate}
           onToggle={toggle}
           onDownload={handleDownloadFromPreview}
           onRemove={handleRemoveFromPreview}
+          onCrop={handleCrop}
         />
       )}
 
       <MergeBar
         selectedCount={selected.size}
         merging={merging}
-        downloading={downloading}
+        downloading={downloading || exporting}
         onMerge={handleMerge}
         onDownloadSelected={handleDownloadSelected}
       />

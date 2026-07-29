@@ -53,6 +53,31 @@ export function clampCropQuad(
   }
 }
 
+/** Verschiebt das gesamte Viereck ohne Verzerrung, bleibt im Bild. */
+export function translateCropQuad(
+  quad: CropQuad,
+  dx: number,
+  dy: number,
+  imageWidth: number,
+  imageHeight: number,
+): CropQuad {
+  const xs = [quad.tl.x, quad.tr.x, quad.br.x, quad.bl.x]
+  const ys = [quad.tl.y, quad.tr.y, quad.br.y, quad.bl.y]
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const ndx = Math.max(-minX, Math.min(imageWidth - maxX, dx))
+  const ndy = Math.max(-minY, Math.min(imageHeight - maxY, dy))
+  const move = (p: Point): Point => ({ x: p.x + ndx, y: p.y + ndy })
+  return {
+    tl: move(quad.tl),
+    tr: move(quad.tr),
+    br: move(quad.br),
+    bl: move(quad.bl),
+  }
+}
+
 /** Quad relativ 0–1 — überlebt Bildwechsel / andere Auflösungen */
 export type NormalizedQuad = {
   tl: Point

@@ -483,6 +483,7 @@
 
 .crop-quad__dim {
   fill: rgba(0, 0, 0, 0.5);
+  pointer-events: none;
 }
 
 .crop-quad__poly {
@@ -490,6 +491,15 @@
   stroke: #fff;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.crop-quad__poly--hit {
+  fill: rgba(255, 255, 255, 0.01);
+  stroke: none;
+  pointer-events: fill;
+  cursor: move;
+  touch-action: none;
 }
 
 .crop-quad__handle {

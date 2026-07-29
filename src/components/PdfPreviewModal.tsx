@@ -5,6 +5,7 @@ import {
   defaultCropQuad,
   denormalizeQuad,
   normalizeQuad,
+  translateCropQuad,
   type CropQuad,
   type NormalizedQuad,
   type Point,
@@ -76,9 +77,20 @@ export function PdfPreviewModal({
     originY: number
   } | null>(null)
   const cornerDragRef = useRef<{
+    mode: 'corner'
     key: CornerKey
     pointerId: number
     origin: Point
+    startClientX: number
+    startClientY: number
+    imgWidth: number
+    imgHeight: number
+    naturalW: number
+    naturalH: number
+  } | {
+    mode: 'move'
+    pointerId: number
+    origin: CropQuad
     startClientX: number
     startClientY: number
     imgWidth: number
@@ -362,7 +374,7 @@ export function PdfPreviewModal({
     }
   }, [])
 
-  // Corner-Drag über window — Maus folgt stabil, unabhängig vom Handle-DOM
+  // Crop-Drag über window — Ecken oder ganzes Viereck
   useEffect(() => {
     const onMove = (e: globalThis.PointerEvent) => {
       const drag = cornerDragRef.current
@@ -371,16 +383,32 @@ export function PdfPreviewModal({
       const dx = ((e.clientX - drag.startClientX) / drag.imgWidth) * drag.naturalW
       const dy = ((e.clientY - drag.startClientY) / drag.imgHeight) * drag.naturalH
 
+      if (drag.mode === 'corner') {
+        setQuad((prev) => {
+          if (!prev) return prev
+          const next = clampCropQuad(
+            {
+              ...prev,
+              [drag.key]: {
+                x: drag.origin.x + dx,
+                y: drag.origin.y + dy,
+              },
+            },
+            drag.naturalW,
+            drag.naturalH,
+          )
+          persistQuad(next, drag.naturalW, drag.naturalH)
+          return next
+        })
+        return
+      }
+
       setQuad((prev) => {
         if (!prev) return prev
-        const next = clampCropQuad(
-          {
-            ...prev,
-            [drag.key]: {
-              x: drag.origin.x + dx,
-              y: drag.origin.y + dy,
-            },
-          },
+        const next = translateCropQuad(
+          drag.origin,
+          dx,
+          dy,
           drag.naturalW,
           drag.naturalH,
         )
@@ -449,9 +477,38 @@ export function PdfPreviewModal({
     if (imgBox.width < 1 || imgBox.height < 1) return
 
     cornerDragRef.current = {
+      mode: 'corner',
       key,
       pointerId: e.pointerId,
       origin: { ...quad[key] },
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      imgWidth: imgBox.width,
+      imgHeight: imgBox.height,
+      naturalW: naturalSize.w,
+      naturalH: naturalSize.h,
+    }
+  }
+
+  const startMoveQuad = (e: PointerEvent<SVGPolygonElement>) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!quad) return
+
+    const img = imgRef.current
+    if (!img || naturalSize.w === 0) return
+    const imgBox = img.getBoundingClientRect()
+    if (imgBox.width < 1 || imgBox.height < 1) return
+
+    cornerDragRef.current = {
+      mode: 'move',
+      pointerId: e.pointerId,
+      origin: {
+        tl: { ...quad.tl },
+        tr: { ...quad.tr },
+        br: { ...quad.br },
+        bl: { ...quad.bl },
+      },
       startClientX: e.clientX,
       startClientY: e.clientY,
       imgWidth: imgBox.width,
@@ -636,7 +693,16 @@ export function PdfPreviewModal({
                 height="100%"
                 mask={`url(#crop-hole-${item.id})`}
               />
-              <polygon className="crop-quad__poly" points={polygonPoints} />
+              <polygon
+                className="crop-quad__poly crop-quad__poly--hit"
+                points={polygonPoints}
+                onPointerDown={startMoveQuad}
+              />
+              <polygon
+                className="crop-quad__poly"
+                points={polygonPoints}
+                pointerEvents="none"
+              />
             </svg>
           )}
           {cropping &&
@@ -664,7 +730,7 @@ export function PdfPreviewModal({
           </button>
           <p className="preview-modal__hint">
             {cropping
-              ? 'Ecken ziehen · ← → nächstes Bild (Crop bleibt) · Enter = Übernehmen'
+              ? 'Fläche ziehen = verschieben · Ecken = anpassen · Enter = Übernehmen'
               : 'C = Zuschneiden · R = Drehen · Leertaste = Auswahl'}
           </p>
         </div>

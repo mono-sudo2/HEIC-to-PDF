@@ -182,9 +182,9 @@ export default function App() {
     id: string,
     imageBlob: Blob,
     previewBlob: Blob,
-  ) => {
+  ): PdfItem | null => {
     const current = itemsRef.current.find((item) => item.id === id)
-    if (!current) return
+    if (!current) return null
 
     const updated: PdfItem = {
       ...current,
@@ -196,6 +196,7 @@ export default function App() {
     revokeItem(current)
     setItems((prev) => prev.map((item) => (item.id === id ? updated : item)))
     setPreviewItem((open) => (open?.id === id ? updated : open))
+    return updated
   }
 
   const handleMerge = async () => {
@@ -304,15 +305,15 @@ export default function App() {
     }
   }
 
-  const handleCrop = async (id: string, quad: CropQuad) => {
+  const handleCrop = async (id: string, quad: CropQuad): Promise<PdfItem | null> => {
     const current = itemsRef.current.find((item) => item.id === id)
-    if (!current || croppingId || rotatingId) return
+    if (!current || croppingId || rotatingId) return null
 
     setCroppingId(id)
     try {
       const cropped = await perspectiveCropImageBlob(current.imageBlob, quad)
       const preview = await imageToJpegPreview(cropped)
-      replaceItemImages(id, cropped, preview)
+      return replaceItemImages(id, cropped, preview)
     } catch (err) {
       setErrors([
         `Zuschneiden fehlgeschlagen: ${err instanceof Error ? err.message : 'unbekannter Fehler'}`,
@@ -320,6 +321,13 @@ export default function App() {
       throw err
     } finally {
       setCroppingId(null)
+    }
+  }
+
+  const handleCropAndDownload = async (id: string, quad: CropQuad) => {
+    const updated = await handleCrop(id, quad)
+    if (updated) {
+      await handleDownloadFromPreview(updated)
     }
   }
 
@@ -427,6 +435,7 @@ export default function App() {
           onDownload={handleDownloadFromPreview}
           onRemove={handleRemoveFromPreview}
           onCrop={handleCrop}
+          onCropAndDownload={handleCropAndDownload}
         />
       )}
 

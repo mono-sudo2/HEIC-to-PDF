@@ -22,7 +22,8 @@ type PdfPreviewModalProps = {
   onToggle: (id: string) => void
   onDownload: (item: PdfItem) => void
   onRemove: (id: string) => void
-  onCrop: (id: string, quad: CropQuad) => void | Promise<void>
+  onCrop: (id: string, quad: CropQuad) => void | Promise<void | PdfItem | null>
+  onCropAndDownload: (id: string, quad: CropQuad) => void | Promise<void>
 }
 
 const MIN_ZOOM = 0.25
@@ -57,6 +58,7 @@ export function PdfPreviewModal({
   onDownload,
   onRemove,
   onCrop,
+  onCropAndDownload,
 }: PdfPreviewModalProps) {
   const [{ zoom, x, y }, setView] = useState<ViewState>({ zoom: 1, x: 0, y: 0 })
   const stageRef = useRef<HTMLDivElement>(null)
@@ -205,12 +207,16 @@ export function PdfPreviewModal({
     cornerDragRef.current = null
   }
 
-  const applyCrop = async () => {
+  const applyCrop = async (andDownload = false) => {
     if (!quad || busy) return
     const { w, h } = naturalSizeRef.current
     persistQuad(quad, w, h)
     try {
-      await onCrop(item.id, quad)
+      if (andDownload) {
+        await onCropAndDownload(item.id, quad)
+      } else {
+        await onCrop(item.id, quad)
+      }
     } catch {
       // Fehler in App
     }
@@ -549,10 +555,19 @@ export function PdfPreviewModal({
                 <button
                   type="button"
                   className="preview-modal__action"
-                  onClick={() => void applyCrop()}
+                  onClick={() => void applyCrop(false)}
                   disabled={busy || !quad}
                 >
                   {croppingBusy ? '…' : 'Übernehmen'}
+                </button>
+                <button
+                  type="button"
+                  className="preview-modal__action"
+                  onClick={() => void applyCrop(true)}
+                  disabled={busy || !quad}
+                  title="Zuschneiden und als PDF herunterladen"
+                >
+                  {croppingBusy ? '…' : 'Übernehmen & Download'}
                 </button>
                 <button
                   type="button"
